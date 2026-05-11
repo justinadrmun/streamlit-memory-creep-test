@@ -1,0 +1,22 @@
+services:
+  streamlit-test:
+    build: .
+    ports:
+      - "8501:8501"
+    deploy:
+      resources:
+        limits:
+          memory: 1200M
+        reservations:
+          memory: 500M
+    environment:
+      - MALLOC_CONF=${MALLOC_CONF:-}
+      - ARROW_DEFAULT_MEMORY_POOL=system
+    volumes:
+      - ./results:/app/results
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

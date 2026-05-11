@@ -1,0 +1,12 @@
+[server]
+maxMessageSize = 100
+disconnectedSessionTTL = 30
+enableCORS = false
+enableXsrfProtection = false
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+magicEnabled = false

@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit-mem-test-retain-false
+  labels:
+    app: streamlit-mem-test
+    test: retain-false
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit-mem-test
+      test: retain-false
+  template:
+    metadata:
+      labels:
+        app: streamlit-mem-test
+        test: retain-false
+    spec:
+      containers:
+        - name: app
+          image: streamlit-mem-test:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+          env:
+            - name: MALLOC_CONF
+              value: "narenas:1,tcache:false,dirty_decay_ms:5000,muzzy_decay_ms:5000,background_thread:true,retain:false"
+            - name: ARROW_DEFAULT_MEMORY_POOL
+              value: "system"
+            - name: TEST_TTL
+              value: "30"
+            - name: TEST_MAX_ENTRIES
+              value: "6"
+            - name: TEST_NUM_PARAMS
+              value: "4"
+            - name: TEST_CYCLES
+              value: "4"
+            - name: TEST_DATA_MB
+              value: "25"
+            - name: TEST_USE_PYARROW
+              value: "1"
+          command: ["python3"]
+          args: ["scripts/test_headless.py"]
+          resources:
+            requests:
+              memory: "400Mi"
+            limits:
+              memory: "1200Mi"
+          volumeMounts:
+            - name: results
+              mountPath: /app/results
+      volumes:
+        - name: results
+          emptyDir: {}
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamlit-mem-test-retain-false
+spec:
+  selector:
+    app: streamlit-mem-test
+    test: retain-false
+  ports:
+    - port: 8501
+      targetPort: 8501
