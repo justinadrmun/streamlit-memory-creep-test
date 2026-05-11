@@ -5,92 +5,125 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-retain-true:
+  test-baseline:
     runs-on: ubuntu-latest
-    name: "retain:true (default)"
+    name: "1. Baseline (old config)"
     steps:
       - uses: actions/checkout@v4
-
       - name: Build Docker image
         run: docker build -t mem-test .
-
-      - name: Run test (retain:true)
+      - name: Run test
         run: |
-          mkdir -p results-true
+          mkdir -p results-baseline
           docker run --rm \
             --memory 1200m --memory-swap 1200m \
-            -v $PWD/results-true:/app/results \
+            -v $PWD/results-baseline:/app/results \
             -e MALLOC_CONF="" \
+            -e PYTHONMALLOC="" \
+            -e MIMALLOC_PURGE_DELAY="25000" \
             -e TEST_TTL=30 \
             -e TEST_MAX_ENTRIES=6 \
             -e TEST_NUM_PARAMS=4 \
             -e TEST_CYCLES=4 \
             -e TEST_DATA_MB=25 \
             -e TEST_USE_PYARROW=1 \
-            mem-test python3 scripts/test_headless.py 2>&1 | tee results-true/output.txt
-
-      - name: Upload results
-        uses: actions/upload-artifact@v4
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results-baseline/output.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: results-retain-true
-          path: results-true/
+          name: results-baseline
+          path: results-baseline/
 
-  test-retain-false:
+  test-optimized:
     runs-on: ubuntu-latest
-    name: "retain:false (fix)"
+    name: "2. Optimized (PYTHONMALLOC=malloc + retain:false + malloc_trim)"
     steps:
       - uses: actions/checkout@v4
-
       - name: Build Docker image
         run: docker build -t mem-test .
-
-      - name: Run test (retain:false)
+      - name: Run test
         run: |
-          mkdir -p results-false
+          mkdir -p results-optimized
           docker run --rm \
             --memory 1200m --memory-swap 1200m \
-            -v $PWD/results-false:/app/results \
-            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:5000,muzzy_decay_ms:5000,background_thread:true,retain:false" \
+            -v $PWD/results-optimized:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e MALLOC_TRIM_THRESHOLD_=131072 \
+            -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
             -e TEST_TTL=30 \
             -e TEST_MAX_ENTRIES=6 \
             -e TEST_NUM_PARAMS=4 \
             -e TEST_CYCLES=4 \
             -e TEST_DATA_MB=25 \
             -e TEST_USE_PYARROW=1 \
-            mem-test python3 scripts/test_headless.py 2>&1 | tee results-false/output.txt
-
-      - name: Upload results
-        uses: actions/upload-artifact@v4
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results-optimized/output.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: results-retain-false
-          path: results-false/
+          name: results-optimized
+          path: results-optimized/
+
+  test-optimized-nocopy:
+    runs-on: ubuntu-latest
+    name: "3. Optimized + no PyArrow zero-copy"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t mem-test .
+      - name: Run test
+        run: |
+          mkdir -p results-nocopy
+          docker run --rm \
+            --memory 1200m --memory-swap 1200m \
+            -v $PWD/results-nocopy:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e MALLOC_TRIM_THRESHOLD_=131072 \
+            -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 \
+            -e TEST_MAX_ENTRIES=6 \
+            -e TEST_NUM_PARAMS=4 \
+            -e TEST_CYCLES=4 \
+            -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results-nocopy/output.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-nocopy
+          path: results-nocopy/
 
   summary:
-    needs: [test-retain-true, test-retain-false]
+    needs: [test-baseline, test-optimized, test-optimized-nocopy]
     runs-on: ubuntu-latest
-    name: "Compare results"
+    name: "Compare all variants"
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          name: results-retain-true
-          path: results-true
+        with: { name: results-baseline, path: results-baseline }
       - uses: actions/download-artifact@v4
-        with:
-          name: results-retain-false
-          path: results-false
-
+        with: { name: results-optimized, path: results-optimized }
+      - uses: actions/download-artifact@v4
+        with: { name: results-nocopy, path: results-nocopy }
       - name: Print comparison
         run: |
           echo "=============================================="
           echo "  MEMORY CREEP TEST — COMPARISON SUMMARY"
           echo "=============================================="
           echo ""
-          echo "--- retain:true (default) ---"
-          cat results-true/output.txt
-          echo ""
-          echo "--- retain:false (fix) ---"
-          cat results-false/output.txt
-          echo ""
+          for variant in baseline optimized nocopy; do
+            echo "--- $variant ---"
+            cat results-$variant/output.txt
+            echo ""
+          done
           echo "--- Drift comparison ---"
-          echo "retain:true  drift: $(grep 'Final drift' results-true/output.txt || echo 'N/A')"
-          echo "retain:false drift: $(grep 'Final drift' results-false/output.txt || echo 'N/A')"
+          for variant in baseline optimized nocopy; do
+            echo "$variant: $(grep 'Final drift' results-$variant/output.txt || echo 'N/A')"
+          done

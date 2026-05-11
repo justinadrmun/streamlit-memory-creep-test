@@ -3,12 +3,40 @@
 Generates a CSV at /app/results/memory_log.csv and prints a summary.
 """
 
-import os, sys, time, gc, threading
+import os, sys, time, gc, ctypes
 import numpy as np
 import polars as pl
 import pandas as pd
+import pyarrow as pa
 from cachetools import TTLCache
 from datetime import datetime
+
+# --- Force Arrow's jemalloc to release memory immediately ---
+try:
+    pa.jemalloc_set_decay_ms(0)
+    print("[init] pa.jemalloc_set_decay_ms(0) called")
+except Exception as e:
+    print(f"[init] pa.jemalloc_set_decay_ms not available: {e}")
+
+# --- malloc_trim(0) helper — forces glibc to return free pages to OS ---
+try:
+    _libc = ctypes.CDLL("libc.so.6")
+    _libc.malloc_trim.argtypes = [ctypes.c_int]
+    _libc.malloc_trim.restype = ctypes.c_int
+
+    def malloc_trim(pad=0):
+        return _libc.malloc_trim(pad)
+except Exception:
+    def malloc_trim(pad=0):
+        return -1
+
+# --- Arrow pool release ---
+def release_arrow():
+    try:
+        pool = pa.default_memory_pool()
+        pool.release_unused()
+    except Exception:
+        pass
 
 
 def get_rss_mb():
@@ -58,15 +86,18 @@ def run_test(name, ttl, max_entries, num_params, cycles, data_size_mb,
         gc.collect()
         time.sleep(1)
         rss3 = get_rss_mb()
+        # Phase 5: clear cache + gc + malloc_trim + arrow release
         cache.clear()
         gc.collect()
+        release_arrow()
+        malloc_trim(0)
         time.sleep(1)
         rss4 = get_rss_mb()
         cache = TTLCache(maxsize=max_entries, ttl=ttl)
 
         results.append((cn, rss0, rss1, rss2, rss3, rss4))
         print(f"[{name}] C{cn}: {rss0:.0f} -> fill:{rss1:.0f} -> "
-              f"ttl:{rss2:.0f} -> gc:{rss3:.0f} -> clear:{rss4:.0f} "
+              f"ttl:{rss2:.0f} -> gc:{rss3:.0f} -> clear+trim:{rss4:.0f} "
               f"(stuck: +{rss4-rss0:.0f} MB)")
 
         if c < cycles - 1:
@@ -123,7 +154,11 @@ if __name__ == "__main__":
     print(f"  TTL: {TTL}s, max_entries: {MAX_ENTRIES}, params/cycle: {NUM_PARAMS}")
     print(f"  Cycles: {CYCLES}, data/query: ~{DATA_MB}MB")
     print(f"  use_pyarrow_extension_array: {USE_PYARROW}")
+    print(f"  PYTHONMALLOC: {os.environ.get('PYTHONMALLOC', '(default)')}")
     print(f"  MALLOC_CONF: {os.environ.get('MALLOC_CONF', '(default)')}")
+    print(f"  MALLOC_ARENA_MAX: {os.environ.get('MALLOC_ARENA_MAX', '(default)')}")
+    print(f"  ARROW_DEFAULT_MEMORY_POOL: {os.environ.get('ARROW_DEFAULT_MEMORY_POOL', '(default)')}")
+    print(f"  MIMALLOC_PURGE_DELAY: {os.environ.get('MIMALLOC_PURGE_DELAY', '(default)')}")
     print("=" * 60)
 
     drift_default = run_test(
