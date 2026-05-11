@@ -11,31 +11,36 @@ import pyarrow as pa
 from cachetools import TTLCache
 from datetime import datetime
 
-# --- Force Arrow's jemalloc to release memory immediately ---
-try:
-    pa.jemalloc_set_decay_ms(0)
-    print("[init] pa.jemalloc_set_decay_ms(0) called")
-except Exception as e:
-    print(f"[init] pa.jemalloc_set_decay_ms not available: {e}")
+SKIP_TRIM = os.environ.get("TEST_SKIP_MALLOC_TRIM", "0") == "1"
 
-# --- malloc_trim(0) helper — forces glibc to return free pages to OS ---
-try:
-    _libc = ctypes.CDLL("libc.so.6")
-    _libc.malloc_trim.argtypes = [ctypes.c_int]
-    _libc.malloc_trim.restype = ctypes.c_int
+if not SKIP_TRIM:
+    try:
+        pa.jemalloc_set_decay_ms(0)
+        print("[init] pa.jemalloc_set_decay_ms(0) called")
+    except Exception as e:
+        print(f"[init] pa.jemalloc_set_decay_ms not available: {e}")
 
-    def malloc_trim(pad=0):
-        return _libc.malloc_trim(pad)
-except Exception:
+    try:
+        _libc = ctypes.CDLL("libc.so.6")
+        _libc.malloc_trim.argtypes = [ctypes.c_int]
+        _libc.malloc_trim.restype = ctypes.c_int
+        def malloc_trim(pad=0):
+            return _libc.malloc_trim(pad)
+    except Exception:
+        def malloc_trim(pad=0):
+            return -1
+
+    def release_arrow():
+        try:
+            pool = pa.default_memory_pool()
+            pool.release_unused()
+        except Exception:
+            pass
+else:
+    print("[init] SKIPPING malloc_trim + pa_decay (TEST_SKIP_MALLOC_TRIM=1)")
     def malloc_trim(pad=0):
         return -1
-
-# --- Arrow pool release ---
-def release_arrow():
-    try:
-        pool = pa.default_memory_pool()
-        pool.release_unused()
-    except Exception:
+    def release_arrow():
         pass
 
 

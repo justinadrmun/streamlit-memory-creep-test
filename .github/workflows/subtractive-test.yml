@@ -1,0 +1,213 @@
+name: Subtractive Memory Test
+
+on:
+  push:
+    branches: [subtractive-test]
+  workflow_dispatch:
+
+jobs:
+  full-optimized:
+    runs-on: ubuntu-latest
+    name: "0. Full optimized (baseline)"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t mem-test .
+      - name: Run
+        run: |
+          mkdir -p results/full
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/full:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/full/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: full-optimized, path: results/full/ }
+
+  # --- Remove one variable at a time ---
+
+  minus-pymalloc:
+    runs-on: ubuntu-latest
+    name: "1. -PYTHONMALLOC (pymalloc back on)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v1
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v1:/app/results \
+            -e PYTHONMALLOC="" \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v1/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-pymalloc, path: results/v1/ }
+
+  minus-malloctrim:
+    runs-on: ubuntu-latest
+    name: "2. -malloc_trim + pa_decay calls"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v2
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v2:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            -e TEST_SKIP_MALLOC_TRIM=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v2/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-malloctrim, path: results/v2/ }
+
+  minus-retainfalse:
+    runs-on: ubuntu-latest
+    name: "3. -retain:false (jemalloc retains pages)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v3
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v3:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v3/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-retainfalse, path: results/v3/ }
+
+  minus-mimalloc:
+    runs-on: ubuntu-latest
+    name: "4. -MIMALLOC settings (Polars hoards pages)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v4
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v4:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY="25000" -e MIMALLOC_PAGE_RESET=0 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v4/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-mimalloc, path: results/v4/ }
+
+  minus-arrowpool:
+    runs-on: ubuntu-latest
+    name: "5. -Arrow jemalloc pool (system instead)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v5
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v5:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=system \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v5/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-arrowpool, path: results/v5/ }
+
+  minus-glencaps:
+    runs-on: ubuntu-latest
+    name: "6. -glibc env (ARENA/TRIM/MMAP defaults)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v6
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v6:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX="" -e MALLOC_TRIM_THRESHOLD_="" -e MALLOC_MMAP_THRESHOLD_="" \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=0 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v6/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-glencaps, path: results/v6/ }
+
+  minus-zerocopy:
+    runs-on: ubuntu-latest
+    name: "7. -no-zero-copy (restore pyarrow ext array)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v7
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v7:/app/results \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e MALLOC_TRIM_THRESHOLD_=131072 -e MALLOC_MMAP_THRESHOLD_=131072 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v7/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-zerocopy, path: results/v7/ }
+
+  summary:
+    needs: [full-optimized, minus-pymalloc, minus-malloctrim, minus-retainfalse, minus-mimalloc, minus-arrowpool, minus-glencaps, minus-zerocopy]
+    runs-on: ubuntu-latest
+    name: "Subtractive comparison"
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: full-optimized, path: results/full }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-pymalloc, path: results/v1 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-malloctrim, path: results/v2 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-retainfalse, path: results/v3 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-mimalloc, path: results/v4 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-arrowpool, path: results/v5 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-glencaps, path: results/v6 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-zerocopy, path: results/v7 }
+      - name: Compare
+        run: |
+          echo "=============================================="
+          echo "  SUBTRACTIVE ANALYSIS — Individual contributions"
+          echo "=============================================="
+          echo ""
+          gather() { grep 'Final drift' results/$1/output.txt 2>/dev/null | grep -oE '[0-9]+' | tail -1; }
+          FULL=$(gather full)
+          echo "0. Full optimized:          +${FULL} MB"
+          V1=$(gather v1); echo "1. -PYTHONMALLOC=malloc:    +${V1} MB  (cost: +$((${V1:-0} - ${FULL:-0})) MB)"
+          V2=$(gather v2); echo "2. -malloc_trim + pa_decay: +${V2} MB  (cost: +$((${V2:-0} - ${FULL:-0})) MB)"
+          V3=$(gather v3); echo "3. -retain:false:           +${V3} MB  (cost: +$((${V3:-0} - ${FULL:-0})) MB)"
+          V4=$(gather v4); echo "4. -MIMALLOC settings:      +${V4} MB  (cost: +$((${V4:-0} - ${FULL:-0})) MB)"
+          V5=$(gather v5); echo "5. -Arrow jemalloc pool:    +${V5} MB  (cost: +$((${V5:-0} - ${FULL:-0})) MB)"
+          V6=$(gather v6); echo "6. -glibc arena/trim/mmap:  +${V6} MB  (cost: +$((${V6:-0} - ${FULL:-0})) MB)"
+          V7=$(gather v7); echo "7. -no-zero-copy (restore): +${V7} MB  (cost: +$((${V7:-0} - ${FULL:-0})) MB)"
+          echo ""
+          echo "Higher cost → bigger individual impact. Negligible cost → skip it."
