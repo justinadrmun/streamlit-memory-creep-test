@@ -23,7 +23,7 @@ ENV ARROW_DEFAULT_MEMORY_POOL=system
 
 EXPOSE 8501
 
-ENTRYPOINT ["python3", "-m", "streamlit", "run", "app/main.py", \
+CMD ["python3", "-m", "streamlit", "run", "app/main.py", \
     "--server.headless=true", \
     "--server.enableCORS=false", \
     "--server.enableXsrfProtection=false", \

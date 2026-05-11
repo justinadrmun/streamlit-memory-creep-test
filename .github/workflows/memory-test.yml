@@ -16,6 +16,7 @@ jobs:
 
       - name: Run test (retain:true)
         run: |
+          mkdir -p results-true
           docker run --rm \
             --memory 1200m --memory-swap 1200m \
             -v $PWD/results-true:/app/results \
@@ -45,6 +46,7 @@ jobs:
 
       - name: Run test (retain:false)
         run: |
+          mkdir -p results-false
           docker run --rm \
             --memory 1200m --memory-swap 1200m \
             -v $PWD/results-false:/app/results \
