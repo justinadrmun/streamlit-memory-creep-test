@@ -5,45 +5,29 @@ Shows exactly where to place memory management initialization.
 Place this in your app's entrypoint file — the one that calls pg.run().
 """
 
-import os
-import gc
-import ctypes
-import threading
-import time
-
+import os, gc, ctypes, threading, time
 import streamlit as st
 import pyarrow as pa
 
+
 # =============================================================================
-# PHASE 1: One-time memory allocator configuration
-# Runs once per Session (each browser tab gets its own WebSocket session).
-# The `st.cache_resource` guard prevents re-execution on st.rerun().
+# One-time memory allocator initialization.
+# @st.cache_resource ensures this runs once per session, not on every rerun.
 # =============================================================================
 
 @st.cache_resource
-def _init_memory_allocator():
-    """Initialize memory allocator settings. Called exactly once per session.
-    
-    Uses @st.cache_resource (not @st.cache_data) because:
-    - We want this to run ONCE per session, not on every rerun
-    - cache_resource returns a singleton — won't re-execute after first call
-    - This is the recommended pattern for one-time initialization in Streamlit
-    """
-
-    # --- Arrow jemalloc: force immediate page decay ---
-    # Makes Arrow's internal jemalloc release dirty/muzzy pages to the OS
-    # immediately rather than lazily. No effect on ongoing queries.
+def _init_memory():
+    # Arrow jemalloc: force immediate page decay
+    # Makes Arrow's internal jemalloc release dirty/muzzy pages immediately.
+    # Thread-safe.  No effect on ongoing queries.
     try:
         pa.jemalloc_set_decay_ms(0)
     except Exception:
-        pass  # Not available if Arrow isn't built with jemalloc
+        pass
 
-    # --- Start the malloc_trim daemon thread ---
-    # glibc holds freed memory in per-thread arenas. malloc_trim(0) tells
-    # glibc to release fully-free pages back to the OS.
-    # Thread-safe (MT-Safe). Sub-millisecond call. No lock contention.
-    #
-    # Called every 60s — frequent enough to catch post-GC free pages,
+    # malloc_trim daemon: tells glibc to return free pages to the OS.
+    # Thread-safe (MT-Safe per man page).  Sub-millisecond call.
+    # Runs every 60s — frequent enough to catch post-GC free pages,
     # infrequent enough to have zero measurable overhead.
     try:
         libc = ctypes.CDLL("libc.so.6")
@@ -57,49 +41,37 @@ def _init_memory_allocator():
 
         threading.Thread(target=_trim_loop, daemon=True, name="malloc-trim").start()
     except Exception:
-        pass  # Not Linux / not glibc (e.g., macOS dev)
+        pass  # not Linux / not glibc (e.g., macOS dev)
+
+
+_init_memory()
 
 
 # =============================================================================
-# PHASE 2: Call the initializer
-# Must be at module level (not inside a function), before pg.run().
-# =============================================================================
-
-_init_memory_allocator()
-
-
-# =============================================================================
-# PHASE 3: Your cached query functions
+# Cached query functions
 #
-# For functions that query Databricks and convert Polars -> Pandas:
-# - Keep use_pyarrow_extension_array=True (the default) — preserves int nulls,
-#   datetimes, categoricals correctly. Setting it to False breaks null ints.
-# - The Arrow pool config (JE_ARROW_MALLOC_CONF) + malloc_trim thread handle
-#   memory release. No need to sacrifice data integrity for memory.
+# Use polars_to_pandas.convert() instead of polars_df.to_pandas().
+# It automatically chooses the best conversion path:
+#   - use_pyarrow_extension_array=False when safe (saves ~66 MB per result)
+#   - to_arrow().to_pandas(types_mapper=...) when unsafe (type-safe, fast)
 # =============================================================================
 
-@st.cache_data(ttl=300, max_entries=6)  # 6 = 2x your active param count
-def query_databricks(sql: str, params_hash: str):
-    """Example cached query function.
+from polars_to_pandas import convert
 
-    Replace with your actual Databricks query logic.
-    """
-    # Your code:
+
+@st.cache_data(ttl=300, max_entries=6)
+def query_databricks(sql: str, params_hash: str):
+    """Example cached Databricks query."""
     # result = connection.execute(sql, params)
     # polars_df = result.to_polars()
-    # pandas_df = polars_df.to_pandas()  # use_pyarrow_extension_array=True (default)
-    # return pandas_df
+    # return convert(polars_df)
     pass
 
 
 # =============================================================================
-# PHASE 4: Page definitions and navigation
-# This goes AFTER initialization, BEFORE pg.run()
+# Page routing — goes AFTER initialization
 # =============================================================================
 
-# pages/ directory auto-discovery, or explicit:
-# about_page = st.Page("pages/about.py", title="About")
-# dashboard_page = st.Page("pages/dashboard.py", title="Dashboard")
-# ... etc
-# pg = st.navigation([about_page, dashboard_page, ...])
+# pages = [...]
+# pg = st.navigation(pages)
 # pg.run()
