@@ -35,8 +35,9 @@ import pandas as pd
 # Any table NOT listed here defaults to the type-safe ArrowDtype path.
 
 SAFE_TABLES: frozenset[str] = frozenset({
-    # "dim_customers",      # example — uncomment when verified safe
-    # "fct_orders",         # example
+    "all_safe",                # test table: pure float + string, zero nulls
+    # "dim_customers",         # example — uncomment when verified safe
+    # "fct_orders",            # example
 })
 
 # Tables with specific nullable-integer columns (partial unsafe).
@@ -47,6 +48,7 @@ SAFE_TABLES: frozenset[str] = frozenset({
 # The converter will handle them surgically.
 
 NULLABLE_INT_COLUMNS: dict[str, frozenset[str]] = {
+    "one_nullable_int": frozenset({"customer_id"}),  # test table: 1 nullable int
     # "dim_customers": frozenset({"customer_id", "region_id"}),
     # "fct_orders": frozenset({"discount_code"}),
 }
