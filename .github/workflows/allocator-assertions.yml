@@ -1,0 +1,24 @@
+name: Allocator Assertion Test
+
+on:
+  push:
+    branches: [allocator-assertions]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: "Allocator assertions"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          docker run --rm \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            mem-test python3 scripts/test_allocator_assertions.py
