@@ -1,0 +1,148 @@
+name: Production Config Test
+
+on:
+  push:
+    branches: [production-config-test]
+  workflow_dispatch:
+
+jobs:
+  full-config:
+    runs-on: ubuntu-latest
+    name: "0. Full prod config"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/full
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/full:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/full/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: full-config, path: results/full/ }
+
+  minus-malloc-conf:
+    runs-on: ubuntu-latest
+    name: "1. -MALLOC_CONF (no jemalloc tuning)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v1
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v1:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v1/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-malloc-conf, path: results/v1/ }
+
+  minus-arrow-pool:
+    runs-on: ubuntu-latest
+    name: "2. -Arrow pool (ARROW_DEFAULT_MEMORY_POOL=system)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v2
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v2:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=system \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v2/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-arrow-pool, path: results/v2/ }
+
+  minus-mimalloc:
+    runs-on: ubuntu-latest
+    name: "3. -MIMALLOC (default Polars purge delay)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v3
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v3:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=25000 \
+            -e MIMALLOC_PAGE_RESET=0 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v3/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-mimalloc, path: results/v3/ }
+
+  minus-arena-max:
+    runs-on: ubuntu-latest
+    name: "4. -MALLOC_ARENA_MAX (glibc default arenas)"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v4
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v4:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v4/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-arena-max, path: results/v4/ }
+
+  summary:
+    needs: [full-config, minus-malloc-conf, minus-arrow-pool, minus-mimalloc, minus-arena-max]
+    runs-on: ubuntu-latest
+    name: "Compare"
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: full-config, path: results/full }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-malloc-conf, path: results/v1 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-arrow-pool, path: results/v2 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-mimalloc, path: results/v3 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-arena-max, path: results/v4 }
+      - name: Compare
+        run: |
+          echo "=============================================="
+          echo "  PRODUCTION CONFIG — SUBTRACTIVE ANALYSIS"
+          echo "  (no PYTHONMALLOC, no polars converter)"
+          echo "=============================================="
+          echo ""
+          gather() { grep 'Final drift' results/$1/output.txt 2>/dev/null | grep -oE '[0-9]+' | tail -1; }
+          FULL=$(gather full)
+          echo "0. Full prod config:          +${FULL} MB"
+          V1=$(gather v1); echo "1. -MALLOC_CONF:              +${V1} MB  (cost: +$((${V1:-0} - ${FULL:-0})) MB)"
+          V2=$(gather v2); echo "2. -Arrow pool:               +${V2} MB  (cost: +$((${V2:-0} - ${FULL:-0})) MB)"
+          V3=$(gather v3); echo "3. -MIMALLOC settings:        +${V3} MB  (cost: +$((${V3:-0} - ${FULL:-0})) MB)"
+          V4=$(gather v4); echo "4. -MALLOC_ARENA_MAX:         +${V4} MB  (cost: +$((${V4:-0} - ${FULL:-0})) MB)"
+          echo ""
+          echo "Higher cost = bigger individual impact."
+          echo "Negative cost = noise / no benefit."

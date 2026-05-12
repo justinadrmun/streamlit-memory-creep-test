@@ -18,7 +18,6 @@ COPY app/ /app/app/
 COPY scripts/ /app/scripts/
 
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
-ENV PYTHONMALLOC=malloc
 ENV ARROW_DEFAULT_MEMORY_POOL=jemalloc
 ENV JE_ARROW_MALLOC_CONF=oversize_threshold:8388608
 ENV MIMALLOC_PURGE_DELAY=0
