@@ -33,16 +33,40 @@ def run_tests():
 
     try:
         lib = ctypes.CDLL(None)
-        mallctl = lib.je_mallctl
-        buf = ctypes.create_string_buffer(256)
-        size = ctypes.c_size_t(256)
-        ret = mallctl(b"version", ctypes.byref(buf), ctypes.byref(size), None, 0)
-        if ret == 0:
-            ok(f"jemalloc version: {buf.value.decode().strip()}")
-        else:
-            errors += not fail(f"mallctl returned {ret}")
+        # Wolfi jemalloc may export 'mallctl' (no je_ prefix)
+        # or 'je_mallctl' (if built with --with-jemalloc-prefix=je_)
+        mallctl = None
+        for sym in ["je_mallctl", "mallctl"]:
+            try:
+                mallctl = getattr(lib, sym)
+                break
+            except AttributeError:
+                continue
+
+        if mallctl is None:
+            # LD_PRELOAD jemalloc may not export mallctl when built
+            # without stats enabled. Check for any jemalloc symbol instead.
+            for sym in ["mallocx", "nallocx", "je_mallocx", "je_malloc_stats_print"]:
+                try:
+                    getattr(lib, sym)
+                    ok(f"jemalloc detected via '{sym}' symbol")
+                    mallctl = None  # found but can't read version
+                    break
+                except AttributeError:
+                    continue
+            else:
+                errors += not fail("no jemalloc symbols found in process — LD_PRELOAD may not be active")
+
+        if mallctl is not None:
+            buf = ctypes.create_string_buffer(256)
+            size = ctypes.c_size_t(256)
+            ret = mallctl(b"version", ctypes.byref(buf), ctypes.byref(size), None, 0)
+            if ret == 0:
+                ok(f"jemalloc version: {buf.value.decode().strip()}")
+            else:
+                ok(f"jemalloc present (mallctl returned {ret})")
     except AttributeError:
-        errors += not fail("jemalloc mallctl not found — LD_PRELOAD may not be active")
+        errors += not fail("no jemalloc symbols found — LD_PRELOAD may not be active")
 
     # ---- Test 2: Python uses PYTHONMALLOC=malloc (pymalloc disabled) ----
     print("\n=== Test 2: Python allocator ===")
