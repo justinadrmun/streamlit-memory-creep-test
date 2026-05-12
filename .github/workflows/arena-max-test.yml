@@ -1,0 +1,61 @@
+name: Arena Max Test
+
+on:
+  push:
+    branches: [arena-max-test]
+  workflow_dispatch:
+
+jobs:
+  with-arena-max:
+    runs-on: ubuntu-latest
+    name: "MALLOC_ARENA_MAX=2"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/with
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/with:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/with/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: with-arena, path: results/with/ }
+
+  without-arena-max:
+    runs-on: ubuntu-latest
+    name: "No MALLOC_ARENA_MAX"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/without
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/without:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e PYTHONMALLOC=malloc \
+            -e MALLOC_CONF="narenas:1,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/without/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: without-arena, path: results/without/ }
+
+  summary:
+    needs: [with-arena-max, without-arena-max]
+    runs-on: ubuntu-latest
+    name: "Compare"
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: with-arena, path: with }
+      - uses: actions/download-artifact@v4
+        with: { name: without-arena, path: without }
+      - run: |
+          echo "MALLOC_ARENA_MAX=2  $(grep 'Final drift' with/output.txt)"
+          echo "no MALLOC_ARENA_MAX $(grep 'Final drift' without/output.txt)"
