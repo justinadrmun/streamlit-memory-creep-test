@@ -1,0 +1,182 @@
+name: MALLOC_CONF Param Test
+
+on:
+  push:
+    branches: [malloc-conf-test]
+  workflow_dispatch:
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    name: "0. Full MALLOC_CONF"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/full
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/full:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 \
+            -e ARROW_DEFAULT_MEMORY_POOL=jemalloc \
+            -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 \
+            -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/full/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: full, path: results/full/ }
+
+  minus-narenas:
+    runs-on: ubuntu-latest
+    name: "1. -narenas:1"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v1
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v1:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v1/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-narenas, path: results/v1/ }
+
+  minus-tcache:
+    runs-on: ubuntu-latest
+    name: "2. -tcache:false"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v2
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v2:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v2/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-tcache, path: results/v2/ }
+
+  minus-dirty-decay:
+    runs-on: ubuntu-latest
+    name: "3. -dirty_decay_ms:10000"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v3
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v3:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,muzzy_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v3/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-dirty-decay, path: results/v3/ }
+
+  minus-muzzy-decay:
+    runs-on: ubuntu-latest
+    name: "4. -muzzy_decay_ms:10000"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v4
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v4:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,background_thread:true,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v4/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-muzzy-decay, path: results/v4/ }
+
+  minus-bgthread:
+    runs-on: ubuntu-latest
+    name: "5. -background_thread:true"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v5
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v5:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,retain:false" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v5/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-bgthread, path: results/v5/ }
+
+  minus-retain:
+    runs-on: ubuntu-latest
+    name: "6. -retain:false"
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mem-test .
+      - run: |
+          mkdir -p results/v6
+          docker run --rm --memory 1200m --memory-swap 1200m -v $PWD/results/v6:/app/results \
+            -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+            -e MALLOC_CONF="narenas:1,tcache:false,dirty_decay_ms:10000,muzzy_decay_ms:10000,background_thread:true" \
+            -e MALLOC_ARENA_MAX=2 -e ARROW_DEFAULT_MEMORY_POOL=jemalloc -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
+            -e MIMALLOC_PURGE_DELAY=0 -e MIMALLOC_PAGE_RESET=1 \
+            -e TEST_TTL=30 -e TEST_MAX_ENTRIES=6 -e TEST_NUM_PARAMS=4 -e TEST_CYCLES=4 -e TEST_DATA_MB=25 \
+            -e TEST_USE_PYARROW=1 \
+            mem-test python3 scripts/test_headless.py 2>&1 | tee results/v6/output.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: minus-retain, path: results/v6/ }
+
+  summary:
+    needs: [full, minus-narenas, minus-tcache, minus-dirty-decay, minus-muzzy-decay, minus-bgthread, minus-retain]
+    runs-on: ubuntu-latest
+    name: "Compare"
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: full, path: full }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-narenas, path: v1 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-tcache, path: v2 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-dirty-decay, path: v3 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-muzzy-decay, path: v4 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-bgthread, path: v5 }
+      - uses: actions/download-artifact@v4
+        with: { name: minus-retain, path: v6 }
+      - name: Compare
+        run: |
+          echo "=============================================="
+          echo "  MALLOC_CONF — INDIVIDUAL PARAMETER IMPACT"
+          echo "  (all other env vars active: Arrow pool,"
+          echo "   MIMALLOC, ARENA_MAX, malloc_trim daemon)"
+          echo "=============================================="
+          echo ""
+          gather() { grep 'Final drift' $1/output.txt 2>/dev/null | grep -oE '[0-9]+' | tail -1; }
+          FULL=$(gather full)
+          echo "0. Full MALLOC_CONF:          +${FULL} MB"
+          V1=$(gather v1); echo "1. -narenas:1               +${V1} MB  (cost: +$((${V1:-0} - ${FULL:-0})) MB)"
+          V2=$(gather v2); echo "2. -tcache:false            +${V2} MB  (cost: +$((${V2:-0} - ${FULL:-0})) MB)"
+          V3=$(gather v3); echo "3. -dirty_decay_ms:10000    +${V3} MB  (cost: +$((${V3:-0} - ${FULL:-0})) MB)"
+          V4=$(gather v4); echo "4. -muzzy_decay_ms:10000    +${V4} MB  (cost: +$((${V4:-0} - ${FULL:-0})) MB)"
+          V5=$(gather v5); echo "5. -background_thread:true  +${V5} MB  (cost: +$((${V5:-0} - ${FULL:-0})) MB)"
+          V6=$(gather v6); echo "6. -retain:false            +${V6} MB  (cost: +$((${V6:-0} - ${FULL:-0})) MB)"
+          echo ""
+          echo "Higher cost = bigger impact. Negative/noise = can drop."
