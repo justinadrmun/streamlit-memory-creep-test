@@ -27,7 +27,7 @@ jobs:
             -e JE_ARROW_MALLOC_CONF=oversize_threshold:8388608 \
             -e MIMALLOC_PURGE_DELAY=0 \
             -e MIMALLOC_PAGE_RESET=1 \
-            mem-test python3 scripts/test_schema_driven.py 2>&1 | tee results/output.txt
+            mem-test python3 scripts/test_two_tier.py 2>&1 | tee results/output.txt
 
       - uses: actions/upload-artifact@v4
         with:
